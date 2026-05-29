@@ -8,13 +8,13 @@ import json
 
 
 # ==================== 颜色映射配置 ====================
-# 五种热量状态对应的低饱和度颜色
+# 五种热量状态对应颜色
 CALORIE_COLORS = {
-    "暂无热量数据": None,            # 空白（由 github_heatmap 默认色覆盖）
-    "热量严重超标": "#D97B7B",        # 低饱和度暗红
-    "热量摄入略高": "#D9B96E",        # 低饱和度暖黄
-    "热量摄入达标": "#72A97A",        # 低饱和度柔绿
-    "热量摄入不足": "#9BA8B0",        # 低饱和度蓝灰
+    "暂无热量数据": None,
+    "热量严重超标": "#fa2f47",   # 鲜红
+    "热量摄入略高": "#ff8400",   # 橙黄
+    "热量摄入达标": "#1ed760",   # 亮绿（Spotify绿）
+    "热量摄入不足": "#e6e6e6",   # 浅灰
 }
 
 # 空白格颜色（无数据）
@@ -22,7 +22,12 @@ COLOR_EMPTY = "#E8EAED"
 
 
 def get_notion_data(token, database_id):
-    """从 Notion 每日摄入数据库拉取所有页面，提取日期和今日热量情况"""
+    """从 Notion 每日摄入数据库拉取所有页面，提取日期、今日热量情况和总卡路里计算。
+    
+    返回两个字典：
+      status_dict  {date_str: calorie_status}   热量状态
+      kcal_dict    {date_str: kcal_value}        当天总卡路里（数值，kcal）
+    """
     print("🔍 正在连接 Notion 数据库并抓取热量摄入数据...")
     url = f"https://api.notion.com/v1/databases/{database_id}/query"
     headers = {
@@ -31,7 +36,8 @@ def get_notion_data(token, database_id):
         "Content-Type": "application/json",
     }
 
-    data_dict = {}
+    status_dict = {}
+    kcal_dict = {}
     has_more = True
     next_cursor = None
 
@@ -56,6 +62,10 @@ def get_notion_data(token, database_id):
                     if props.get("日期") and props["日期"].get("date"):
                         date_val = props["日期"]["date"].get("start")
 
+                    if not date_val:
+                        continue
+                    date_str = str(date_val).split("T")[0]
+
                     # 读取"今日热量情况"属性（formula 输出 string 类型）
                     calorie_status = None
                     status_prop = props.get("今日热量情况")
@@ -74,13 +84,36 @@ def get_notion_data(token, database_id):
                             if sel:
                                 calorie_status = sel.get("name", "").strip()
 
-                    if date_val and calorie_status:
-                        date_str = str(date_val).split("T")[0]
+                    if calorie_status:
                         # 优先级：超标 > 略高 > 达标 > 不足 > 无数据
-                        existing = data_dict.get(date_str, "暂无热量数据")
+                        existing = status_dict.get(date_str, "暂无热量数据")
                         priority = ["暂无热量数据", "热量摄入不足", "热量摄入达标", "热量摄入略高", "热量严重超标"]
                         if priority.index(calorie_status) > priority.index(existing):
-                            data_dict[date_str] = calorie_status
+                            status_dict[date_str] = calorie_status
+
+                    # 读取"总卡路里计算"属性（formula / number 类型）
+                    kcal_prop = props.get("总卡路里计算")
+                    if kcal_prop:
+                        ptype = kcal_prop.get("type")
+                        kcal_val = None
+                        if ptype == "formula":
+                            f_data = kcal_prop.get("formula", {})
+                            if f_data.get("type") == "number":
+                                kcal_val = f_data.get("number")
+                            elif f_data.get("type") == "string":
+                                # 有时 formula 返回字符串，提取数字
+                                m = re.search(r"(\d+(\.\d+)?)", str(f_data.get("string", "")))
+                                kcal_val = float(m.group(1)) if m else None
+                        elif ptype == "number":
+                            kcal_val = kcal_prop.get("number")
+                        elif ptype == "rollup":
+                            r_data = kcal_prop.get("rollup", {})
+                            if r_data.get("type") == "number":
+                                kcal_val = r_data.get("number")
+
+                        if kcal_val is not None:
+                            # 多条记录同一天时累加
+                            kcal_dict[date_str] = kcal_dict.get(date_str, 0) + kcal_val
 
                 has_more = res.get("has_more", False)
                 next_cursor = res.get("next_cursor")
@@ -88,9 +121,9 @@ def get_notion_data(token, database_id):
             print(f"❌ 获取 Notion 数据失败: {e}")
             sys.exit(1)
 
-    valid_count = sum(1 for v in data_dict.values() if v != "暂无热量数据")
-    print(f"✅ 共读取到 {len(data_dict)} 天记录，其中 {valid_count} 天有有效热量数据")
-    return data_dict
+    valid_count = sum(1 for v in status_dict.values() if v != "暂无热量数据")
+    print(f"✅ 共读取到 {len(status_dict)} 天记录，其中 {valid_count} 天有有效热量数据")
+    return status_dict, kcal_dict
 
 
 def get_color_for_status(status):
@@ -122,22 +155,34 @@ def get_year_summary(data_dict, year):
     return counts
 
 
-def process_svg_styling(file_path, data_dict, current_year, total_override=None):
+def build_summary_str(year_counts):
+    """根据各状态天数生成标题统计字符串"""
+    达标 = year_counts.get("热量摄入达标", 0)
+    超标 = year_counts.get("热量严重超标", 0)
+    略高 = year_counts.get("热量摄入略高", 0)
+    不足 = year_counts.get("热量摄入不足", 0)
+    return f"{达标}天达标 · {超标}天超标 · {略高}天略高 · {不足}天不足"
+
+
+def process_svg_styling(file_path, status_dict, kcal_dict, current_year, total_override=None):
     """对底稿 SVG 执行热量状态着色，并修正年度统计文字。
     若提供 total_override，则用它覆盖左上角统计值（用于年度归档场景）。
+    
+    参数：
+      status_dict   {date_str: calorie_status}
+      kcal_dict     {date_str: kcal_value}
+      total_override  归档场景传入的已拼好的摘要字符串
     """
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    # 1. 修正统计文字：将 "2026: 0 分钟" 等替换为达标天数统计
-    year_counts = get_year_summary(data_dict, current_year)
+    # 1. 修正统计文字
+    year_counts = get_year_summary(status_dict, current_year)
 
     if total_override is not None:
-        # 归档场景：直接使用传入的字符串描述
         summary_str = total_override
     else:
-        達標天数 = year_counts.get("热量摄入达标", 0)
-        summary_str = f"{達標天数}天达标"
+        summary_str = build_summary_str(year_counts)
 
     content = re.sub(
         rf"({current_year}:\s*)[^\n<]+",
@@ -145,31 +190,35 @@ def process_svg_styling(file_path, data_dict, current_year, total_override=None)
         content,
     )
 
-    # 2. 对每个日期格子应用热量状态颜色
+    # 2. 对每个日期格子应用热量状态颜色，并在 title 中追加卡路里数值
     def rect_replacer(match):
         rect_tag = match.group(0)
-        # 从 <title> 子标签中提取日期
         date_match = re.search(r"<title>(\d{4}-\d{2}-\d{2})", rect_tag)
         if not date_match:
             return rect_tag
 
         date_str = date_match.group(1)
-        status = data_dict.get(date_str, "暂无热量数据")
+        status = status_dict.get(date_str, "暂无热量数据")
         color = get_color_for_status(status)
         display_text = get_status_display(status)
 
-        # 更新 <title> 标签，显示"日期 - 状态"
+        # 追加卡路里数值到 tooltip
+        kcal = kcal_dict.get(date_str)
+        if kcal is not None:
+            kcal_int = int(round(kcal))
+            tooltip = f"{date_str} - {display_text} ({kcal_int} kcal)"
+        else:
+            tooltip = f"{date_str} - {display_text}"
+
         rect_tag = re.sub(
             r"<title>\d{4}-\d{2}-\d{2}</title>",
-            f"<title>{date_str} - {display_text}</title>",
+            f"<title>{tooltip}</title>",
             rect_tag,
             count=1
         )
 
-        # 只替换第一个 fill 属性（格子本身的颜色）
         return re.sub(r'fill="[^"]+"', f'fill="{color}"', rect_tag, count=1)
 
-    # 精确匹配：只处理包含 <title> 子标签的日期格子 rect
     content = re.sub(
         r'<rect\b[^>]*><title>.*?</title></rect>',
         rect_replacer,
@@ -177,14 +226,14 @@ def process_svg_styling(file_path, data_dict, current_year, total_override=None)
         flags=re.DOTALL,
     )
 
-    # 3. 补充白色背景（若 SVG 本身没有背景矩形）
+    # 3. 补充白色背景
     if 'id="background"' not in content:
         content = content.replace("<svg ", '<svg style="background-color:white;" ', 1)
 
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(content)
 
-    print(f"🎨 着色完成：{get_year_summary(data_dict, current_year)}")
+    print(f"🎨 着色完成：{year_counts}")
 
 
 def generate_heatmap(notion_token, database_id, year, me_name=None):
@@ -230,10 +279,10 @@ def main():
     current_year = datetime.datetime.now().year
     target_year = int(os.getenv("YEAR", current_year))
 
-    # ① 拉取 Notion 数据
-    real_data = get_notion_data(notion_token, database_id)
+    # ① 拉取 Notion 数据（返回 status_dict 和 kcal_dict）
+    real_status, real_kcal = get_notion_data(notion_token, database_id)
 
-    # ② 生成底稿 SVG（颜色由后续步骤覆盖，此处只要求完整轨道和标题正确）
+    # ② 生成底稿 SVG
     svg_path = generate_heatmap(notion_token, database_id, target_year)
 
     if not os.path.exists(svg_path):
@@ -242,7 +291,7 @@ def main():
 
     # ③ 热量状态着色 + 统计注入
     print("🎨 正在执行热量状态着色与统计注入...")
-    process_svg_styling(svg_path, real_data, target_year)
+    process_svg_styling(svg_path, real_status, real_kcal, target_year)
 
     # ④ 移动到 calorie_heatmap/main.svg
     os.makedirs("calorie_heatmap", exist_ok=True)

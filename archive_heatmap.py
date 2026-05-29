@@ -33,14 +33,13 @@ def main():
 
     print(f"📅 正在为 {target_year} 年生成归档热力图...")
 
-    # ① 拉取 Notion 全量数据
-    all_data = uch.get_notion_data(notion_token, database_id)
+    # ① 拉取 Notion 全量数据（status_dict 和 kcal_dict）
+    all_status, all_kcal = uch.get_notion_data(notion_token, database_id)
 
     # ② 筛选目标年份数据（用于正确的年度总计）
-    year_data = filter_data_by_year(all_data, target_year)
-    year_counts = uch.get_year_summary(year_data, target_year)
-    达标天数 = year_counts.get("热量摄入达标", 0)
-    summary_str = f"{达标天数}天达标"
+    year_status = filter_data_by_year(all_status, target_year)
+    year_counts = uch.get_year_summary(year_status, target_year)
+    summary_str = uch.build_summary_str(year_counts)
     print(f"📊 {target_year} 年统计：{year_counts}")
 
     # ③ 生成底稿 SVG（由 github_heatmap CLI 按年份过滤）
@@ -54,7 +53,8 @@ def main():
     print("🎨 正在执行热量状态着色与统计注入...")
     uch.process_svg_styling(
         svg_path,
-        all_data,               # 全量数据用于逐日着色
+        all_status,             # 全量状态数据用于逐日着色
+        all_kcal,               # 全量卡路里数据用于 tooltip
         target_year,
         total_override=summary_str,  # 年度统计只计算目标年份
     )
