@@ -81,30 +81,30 @@
             transition: filter 0.4s ease;
         }
 
-        /* 图例容器 */
+        /* 图例说明 */
         .legend {
             display: flex;
-            gap: 14px;
-            justify-content: center;
-            flex-wrap: wrap;
-            margin-top: 10px;
-            padding: 8px 0 4px 0;
+            align-items: center;
+            gap: 8px;
+            margin-left: 10px;
+            font-size: 11px;
+            color: #888;
         }
 
         .legend-item {
             display: flex;
             align-items: center;
-            gap: 5px;
-            font-size: 11px;
-            color: #666;
-            transition: color 0.3s ease;
+            gap: 3px;
         }
 
-        .legend-dot {
-            width: 12px;
-            height: 12px;
-            border-radius: 3px;
-            flex-shrink: 0;
+        .legend-box {
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+        }
+
+        body.dark-mode .legend {
+            color: #888;
         }
 
         .loading-text {
@@ -138,10 +138,6 @@
             background-color: #383838;
         }
 
-        body.dark-mode .legend-item {
-            color: #999;
-        }
-
         /* 智能反色滤镜：保留颜色感知，让深色模式下背景正常显示 */
         body.dark-mode svg {
             filter: invert(0.9) hue-rotate(180deg) brightness(1.1);
@@ -158,36 +154,19 @@
                 <option value="2023">2023</option>
             </select>
             <button id="theme-toggle" title="切换深色/浅色模式">🌙</button>
+            <div class="legend">
+                <div class="legend-item"><div class="legend-box" style="background:#E8EAED;border:1px solid #ccc;"></div><span>无数据</span></div>
+                <div class="legend-item"><div class="legend-box" style="background:#fa2f47;"></div><span>超标</span></div>
+                <div class="legend-item"><div class="legend-box" style="background:#ff8400;"></div><span>略高</span></div>
+                <div class="legend-item"><div class="legend-box" style="background:#1ed760;"></div><span>达标</span></div>
+                <div class="legend-item"><div class="legend-box" style="background:#90b1fb;"></div><span>不足</span></div>
+            </div>
         </div>
     </header>
 
     <div id="heatmap-scroll-container">
         <div id="heatmap-content">
             <p class="loading-text">正在加载热量摄入热力图…</p>
-        </div>
-    </div>
-
-    <!-- 图例 -->
-    <div class="legend">
-        <div class="legend-item">
-            <div class="legend-dot" style="background:#E8EAED;border:1px solid #ccc;"></div>
-            <span>暂无数据</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-dot" style="background:#fa2f47;"></div>
-            <span>热量严重超标</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-dot" style="background:#ff8400;"></div>
-            <span>热量摄入略高</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-dot" style="background:#1ed760;"></div>
-            <span>热量摄入达标</span>
-        </div>
-        <div class="legend-item">
-            <div class="legend-dot" style="background:#e6e6e6;border:1px solid #ccc;"></div>
-            <span>热量摄入不足</span>
         </div>
     </div>
 
