@@ -157,11 +157,11 @@ def get_year_summary(data_dict, year):
 
 def build_summary_str(year_counts):
     """根据各状态天数生成标题统计字符串"""
-    达标 = year_counts.get("热量摄入达标", 0)
-    超标 = year_counts.get("热量严重超标", 0)
-    略高 = year_counts.get("热量摄入略高", 0)
     不足 = year_counts.get("热量摄入不足", 0)
-    return f"{达标}天达标 · {超标}天超标 · {略高}天略高 · {不足}天不足"
+    达标 = year_counts.get("热量摄入达标", 0)
+    略高 = year_counts.get("热量摄入略高", 0)
+    超标 = year_counts.get("热量严重超标", 0)
+    return f"{不足}天不足 · {达标}天达标 · {略高}天略高 · {超标}天超标"
 
 
 def process_svg_styling(file_path, status_dict, kcal_dict, current_year, total_override=None):
